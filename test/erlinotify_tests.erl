@@ -19,12 +19,14 @@ basic_test_() ->
     {setup,
      fun setup/0,
      fun cleanup/1,
-     fun(Path) -> erlinotify:assign_callback(
-                fun(Var) ->
-                        ?_assertMatch({Path,file,_Event,0,"monkey"}, Var)
-                end ),
-              erlinotify:watch(Path),
+     fun(Path) ->
+              Ref = self(),
+              erlinotify:watch(Path,
+                               fun(Var) -> Ref ! ?_assertMatch({Path,file,_Event,0,"monkey"}, Var) end ),
               ok = file:write_file(Path++"monkey", "testing123", [write]),
-              ?_assertMatch(ok,ok)
+              receive
+                  Assert -> Assert
+              after 1000 -> ?_assertMatch(timeout, error)
               end
+        end
     }.
