@@ -8,13 +8,12 @@
 %% TODO
 %% Docs
 %% Ets table to store Dir
-%% Callback addition
 
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, watch/1, unwatch/1, assign_callback/1]).
+-export([start_link/0, watch/2, unwatch/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -32,7 +31,7 @@
 %%                                   watchdescriptors = ets:tid(),
 %%                                   callback= term() }.
 
--record(state, {fd, callback, dirnames, watchdescriptors}).
+-record(state, {fd, callbacks, dirnames, watchdescriptors}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -41,14 +40,11 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-watch(Name) ->
-    gen_server:cast(?MODULE, {watch, Name}).
+watch(Name, CB) ->
+    gen_server:cast(?MODULE, {watch, Name, CB}).
 
 unwatch(Name) ->
     gen_server:cast(?MODULE, {unwatch, Name}).
-
-assign_callback(Fn) ->
-    gen_server:cast(?MODULE, {assign_callback, Fn}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -66,8 +62,8 @@ init([]) ->
     {ok,Fd} = erlinotify_nif:start(),
     {ok, Ds} = ets_manager:give_me(dirnames),
     {ok, Wds} = ets_manager:give_me(watchdescriptors),
-    X = fun(E) -> io:fwrite(standard_error,"~p~n",[E]) end,
-    {ok, #state{fd=Fd, callback=X, dirnames = Ds, watchdescriptors=Wds}}.
+    {ok, CBs} = ets_manager:give_me(callbacks),
+    {ok, #state{fd=Fd, callbacks=CBs, dirnames = Ds, watchdescriptors=Wds}}.
 
 %%----------------------------------------------------------------------
 %% Func: handle_call/3
@@ -89,14 +85,10 @@ handle_call(_Request, _From, State) ->
 %%----------------------------------------------------------------------
 handle_cast(stop, State) ->
   {stop, normal, State};
-handle_cast({watch, Watch}, State) ->
-  {noreply, do_watch(Watch, State)};
+handle_cast({watch, Watch, CB}, State) ->
+  {noreply, do_watch(Watch, CB, State)};
 handle_cast({unwatch, Unwatch}, State) ->
   {noreply, do_unwatch(Unwatch, State)};
-handle_cast({assign_callback, Fn},
-            #state{fd=Fd, callback=_X, dirnames = Ds, watchdescriptors=Wds}) ->
-    NewState = #state{fd=Fd, callback=Fn, dirnames = Ds, watchdescriptors=Wds},
-    {noreply, NewState};
 handle_cast(Msg, State) ->
   ?log({unknown_message, Msg}),
   {noreply, State}.
@@ -108,12 +100,13 @@ handle_cast(Msg, State) ->
 %%          {stop, Reason, State} (terminate/2 is called)
 %%----------------------------------------------------------------------
 handle_info({inotify_event, Wd, Type, Event, Cookie, Name} = Info, State) ->
-  CB = State#state.callback,
   case ets:lookup(State#state.watchdescriptors, Wd) of
       [] -> ?log({unknown_file_watch, Info}),
             {noreply, State};
-      [{Wd, File}] -> CB({File, Type, Event, Cookie, Name}),
-                      {noreply, State}
+      [{Wd, File}] ->
+            [{File, CB}] = ets:lookup(State#state.callbacks, File),
+            CB({File, Type, Event, Cookie, Name}),
+            {noreply, State}
   end;
 handle_info({'ETS-TRANSFER', _Tid, _Pid, new_table}, State) ->
     %% log at some point?
@@ -157,7 +150,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% watch. Logs on error
 do_watch(File, State) ->
     case erlinotify_nif:add_watch(State#state.fd, File) of
+        {ok, Wd} -> ets:insert(State#state.watchdescriptors, {Wd, File}),
+                    State;
+        Error -> Error
+    end.
+
+do_watch(File, CB, State) ->
+    case erlinotify_nif:add_watch(State#state.fd, File) of
         {ok, Wd} -> ets:insert(State#state.dirnames, {File, Wd}),
+                    ets:insert(State#state.callbacks, {File, CB}),
                     ets:insert(State#state.watchdescriptors, {Wd, File}),
                     State;
         Error -> Error
@@ -171,12 +172,12 @@ do_watch(File, State) ->
 do_unwatch(File, State) ->
     case ets:lookup(State#state.dirnames, File) of
         [] -> State;
-        [{File,Wd}] -> case erlinotify_nif:remove_watch(State#state.fd, Wd) of
-                  ok -> ets:delete(State#state.dirnames, File),
-                        ets:delete(State#state.watchdescriptors, Wd),
-                        State;
-                  Error -> Error
-              end
+        [{File,Wd}] ->
+            ets:delete(State#state.dirnames, File),
+            ets:delete(State#state.callbacks, File),
+            ets:delete(State#state.watchdescriptors, Wd),
+            erlinotify_nif:remove_watch(State#state.fd, Wd),
+            State
     end.
 
 %% @spec (state()) -> ok
