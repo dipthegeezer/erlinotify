@@ -172,12 +172,12 @@ do_watch(File, CB, State) ->
 do_unwatch(File, State) ->
     case ets:lookup(State#state.dirnames, File) of
         [] -> State;
-        [{File,Wd}] -> case erlinotify_nif:remove_watch(State#state.fd, Wd) of
-                  ok -> ets:delete(State#state.dirnames, File),
-                        ets:delete(State#state.watchdescriptors, Wd),
-                        State;
-                  Error -> Error
-              end
+        [{File,Wd}] ->
+            ets:delete(State#state.dirnames, File),
+            ets:delete(State#state.callbacks, File),
+            ets:delete(State#state.watchdescriptors, Wd),
+            erlinotify_nif:remove_watch(State#state.fd, Wd),
+            State
     end.
 
 %% @spec (state()) -> ok
