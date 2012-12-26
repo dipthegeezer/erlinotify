@@ -62,7 +62,7 @@ init([]) ->
     {ok,Fd} = erlinotify_nif:start(),
     {ok, Ds} = ets_manager:give_me(dirnames),
     {ok, Wds} = ets_manager:give_me(watchdescriptors),
-    {ok, CBs} = ets_manager:give_me(callbacks),
+    {ok, CBs} = ets_manager:give_me(callbacks, [bag]),
     {ok, #state{fd=Fd, callbacks=CBs, dirnames = Ds, watchdescriptors=Wds}}.
 
 %%----------------------------------------------------------------------
@@ -107,8 +107,8 @@ handle_info({inotify_event, Wd, Type, Event, Cookie, Name} = Info, State) ->
       [] -> ?log({unknown_file_watch, Info}),
             {noreply, State};
       [{Wd, File}] ->
-            [{File, CB}] = ets:lookup(State#state.callbacks, File),
-            CB({File, Type, Event, Cookie, Name}),
+            [CB({File, Type, Event, Cookie, Name}) ||
+                {_File, CB} <- ets:lookup(State#state.callbacks, File)],
             {noreply, State}
   end;
 handle_info({'ETS-TRANSFER', _Tid, _Pid, new_table}, State) ->

@@ -54,7 +54,7 @@ remove_watch(_Ref, _Wd) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%% @spec nif_stub_error(Linenumber)
+%% @spec nif_stub_error(Linenumber) -> ok
 %%       Linenumber = int()
 %%
 %% @doc Log failed linked method call.
