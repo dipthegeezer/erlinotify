@@ -37,7 +37,7 @@ stop(_Ref) ->
 %%       Result = term()
 %%       Dirname = filelib:dirname()
 %%
-%% @doc Add a directoy to watch for changes returning an integer
+%% @doc Add a directory to watch for changes returning an integer
 %% referance to it.
 add_watch(_Ref, _Dirname) ->
     ?nif_stub.
