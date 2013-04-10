@@ -5,9 +5,6 @@
 -define(log(T),
         error_logger:info_report(
           [process_info(self(),current_function),{line,?LINE},T])).
-%% TODO
-%% Docs
-%% Ets table to store Dir
 
 %% ------------------------------------------------------------------
 %% API Function Exports
